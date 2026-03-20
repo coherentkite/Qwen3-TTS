@@ -374,6 +374,39 @@ sf.write("decode_output.wav", wavs[0], sr)
 
 For more tokenizer examples (including different input formats and batch usage), please refer to the [example codes](https://github.com/QwenLM/Qwen3-TTS/blob/main/examples/test_tokenizer_12hz.py). With those examples and the description for `Qwen3TTSTokenizer`, you can explore more advanced usage patterns.
 
+#### Node CLI Wrapper (Local Voice Clone Reuse)
+
+This repository also includes a minimal Node.js wrapper around Python inference for reusable voice clone prompts:
+
+- `scripts/qwen3tts.mjs` (Node CLI)
+- `scripts/qwen3tts_bridge.py` (Python bridge using `qwen_tts`)
+
+Create a reusable ICL clone prompt file:
+
+```bash
+node scripts/qwen3tts.mjs clone \
+  --ref-audio ./ref.wav \
+  --ref-text-file ./ref.txt \
+  --clone-file ./my_voice_clone.pt \
+  --model Qwen/Qwen3-TTS-12Hz-1.7B-Base
+```
+
+Synthesize text using the saved clone prompt:
+
+```bash
+node scripts/qwen3tts.mjs speak \
+  --clone-file ./my_voice_clone.pt \
+  --text "Hello! This is a cloned voice test." \
+  --out ./out.wav \
+  --language Auto \
+  --model Qwen/Qwen3-TTS-12Hz-1.7B-Base
+```
+
+Notes:
+- ICL mode is enforced (`ref_text` is required when creating clone files).
+- Clone files include schema/version metadata and model compatibility checks.
+- You can set `--no-flash-attn` when FlashAttention-2 is unavailable in your environment.
+
 ### Launch Local Web UI Demo
 
 To launch the Qwen3-TTS web ui demo, simply install the `qwen-tts` package and run `qwen-tts-demo`. Use the command below for help:
