@@ -42,6 +42,7 @@ Options:
   --dtype <dtype>            One of: bfloat16|bf16|float16|fp16|float32|fp32 (default: ${DEFAULT_DTYPE})
   --flash-attn               Enable FlashAttention-2 (default)
   --no-flash-attn            Disable FlashAttention-2
+  (local non-WAV ref audio is auto-converted via ffmpeg)
   --python <path>            Python executable (default: ${DEFAULT_PYTHON})
   --help
 `);

@@ -5,6 +5,10 @@ import argparse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import shutil
+import subprocess
+import tempfile
+from urllib.parse import urlparse
 
 import torch
 
@@ -112,6 +116,74 @@ def read_text_arg(raw_text: Optional[str], text_file: Optional[str], field_name:
     return text.strip()
 
 
+def is_url(value: str) -> bool:
+    try:
+        parsed = urlparse(value)
+        return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+    except Exception:
+        return False
+
+
+def is_probably_base64_audio(value: str) -> bool:
+    if value.startswith("data:audio"):
+        return True
+    # Heuristic reused from model wrapper style: long string without path separators.
+    return len(value) > 256 and ("/" not in value and "\\" not in value)
+
+
+def maybe_convert_local_audio_to_wav(ref_audio: str) -> tuple[str, Optional[Path]]:
+    """
+    If `ref_audio` is a local non-wav file path (e.g. .m4a), convert it to a temporary wav with ffmpeg.
+    Returns (audio_path_for_model, temp_file_path_or_none).
+    """
+    if is_url(ref_audio) or is_probably_base64_audio(ref_audio):
+        return ref_audio, None
+
+    source = Path(ref_audio)
+    if not source.exists() or not source.is_file():
+        # Let downstream loader handle path errors for consistency.
+        return ref_audio, None
+
+    if source.suffix.lower() == ".wav":
+        return str(source), None
+
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise RuntimeError(
+            "Reference audio is not WAV and ffmpeg is not installed. "
+            "Install ffmpeg or convert the file manually to .wav."
+        )
+
+    with tempfile.NamedTemporaryFile(prefix="qwen3tts_ref_", suffix=".wav", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+
+    cmd = [
+        ffmpeg,
+        "-y",
+        "-i",
+        str(source),
+        "-ac",
+        "1",
+        "-ar",
+        "24000",
+        "-c:a",
+        "pcm_s16le",
+        str(tmp_path),
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+        stderr_tail = (proc.stderr or "").strip().splitlines()[-10:]
+        raise RuntimeError(
+            "ffmpeg conversion failed while converting reference audio to WAV.\n"
+            + "\n".join(stderr_tail)
+        )
+
+    print(f"Converted reference audio to WAV via ffmpeg: {tmp_path}")
+    return str(tmp_path), tmp_path
+
+
 def item_to_payload_dict(item: VoiceClonePromptItem) -> Dict[str, Any]:
     return {
         "ref_code": None if item.ref_code is None else item.ref_code.detach().cpu(),
@@ -203,11 +275,16 @@ def run_clone(args: argparse.Namespace) -> None:
             f"Model {args.model!r} has tts_model_type={model.model.tts_model_type!r}; expected 'base'."
         )
 
-    items = model.create_voice_clone_prompt(
-        ref_audio=args.ref_audio,
-        ref_text=ref_text,
-        x_vector_only_mode=False,
-    )
+    normalized_ref_audio, temp_wav = maybe_convert_local_audio_to_wav(args.ref_audio)
+    try:
+        items = model.create_voice_clone_prompt(
+            ref_audio=normalized_ref_audio,
+            ref_text=ref_text,
+            x_vector_only_mode=False,
+        )
+    finally:
+        if temp_wav is not None:
+            temp_wav.unlink(missing_ok=True)
 
     payload = {
         "schema_version": SCHEMA_VERSION,

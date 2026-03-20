@@ -405,7 +405,14 @@ node scripts/qwen3tts.mjs speak \
 Notes:
 - ICL mode is enforced (`ref_text` is required when creating clone files).
 - Clone files include schema/version metadata and model compatibility checks.
+- For local `--ref-audio` files, non-WAV formats (e.g. `m4a`, `mp3`, `flac`) are auto-converted to WAV via `ffmpeg`.
 - You can set `--no-flash-attn` when FlashAttention-2 is unavailable in your environment.
+
+If you prefer manual conversion, for example `m4a -> wav`:
+
+```bash
+ffmpeg -i input.m4a -ac 1 -ar 24000 -c:a pcm_s16le input.wav
+```
 
 ### Launch Local Web UI Demo
 
